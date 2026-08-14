@@ -4,7 +4,7 @@
 
 Synctrades Lite is a standalone Go CLI that syncs a user's Schwab trade history into their own Google Sheet. It is a sibling project to the `synctrades` SaaS app (Next.js + ASP.NET Core, private repo), not part of it — no shared code, no shared repo, separate license. It exists because it's a monetizable product that doesn't require the commercial brokerage license the SaaS app is waiting on: users connect their own Schwab and Google accounts, the tool runs entirely on their machine, and we never touch their credentials or data.
 
-Full product rationale: see `synctrades/PRODUCT_PIVOT_BRIEF.md` in the sibling repo (not vendored here — cross-reference it directly).
+Full product rationale: see `PRODUCT_PIVOT_BRIEF.md` at the root of this repo. It is gitignored and deliberately not committed: it contains internal business strategy (pricing, upsell roadmap) that must stay out of a source-available repo. Keep it local.
 
 ## Product/architecture decisions already made
 

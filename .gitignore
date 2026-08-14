@@ -1,0 +1,27 @@
+# Internal planning docs - business strategy, not for a source-available repo
+PRODUCT_PIVOT_BRIEF.md
+
+# Credentials - never commit. This tool handles Schwab tokens and GCP service
+# account keys; an accidental commit here is a real incident, not a nuisance.
+service-account*.json
+gcp-*.json
+credentials.json
+client_secret*.json
+*.pem
+*.pfx
+.env
+.env.*
+
+# Compiled binaries
+synctrades
+synctrades.exe
+/dist/
+
+# Go
+*.test
+*.out
+coverage.*
+
+# OS
+.DS_Store
+Thumbs.db
