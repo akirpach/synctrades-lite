@@ -26,20 +26,6 @@ const maxErrorBody = 8 << 10
 // backend's behavior of clearing tokens on a 400 or 401 from refresh.
 var ErrReauthRequired = errors.New("schwab refresh token is no longer valid; re-authorization required")
 
-// APIError is a non-success response from Schwab's token endpoint.
-type APIError struct {
-	Op         string
-	StatusCode int
-	Body       string
-}
-
-func (e *APIError) Error() string {
-	if e.Body == "" {
-		return fmt.Sprintf("schwab %s failed: HTTP %d", e.Op, e.StatusCode)
-	}
-	return fmt.Sprintf("schwab %s failed: HTTP %d: %s", e.Op, e.StatusCode, e.Body)
-}
-
 // Token is a Schwab credential set with expiry resolved to an absolute time.
 //
 // Schwab reports lifetime as a relative expires_in, which is useless once
@@ -188,11 +174,7 @@ func (c *TokenClient) post(ctx context.Context, op string, form url.Values) (tok
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return tokenResponse{}, &APIError{
-			Op:         op,
-			StatusCode: resp.StatusCode,
-			Body:       strings.TrimSpace(string(body)),
-		}
+		return tokenResponse{}, classify(op, resp.StatusCode, body)
 	}
 
 	var parsed tokenResponse
