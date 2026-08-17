@@ -17,8 +17,12 @@ synctrades
 synctrades.exe
 /dist/
 
+# Local dev helper for the Schwab auth walk
+e2e-auth.ps1
+
 # Go
 *.test
+*.test.exe
 *.out
 coverage.*
 
