@@ -3,6 +3,7 @@ package schwab
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -247,6 +248,153 @@ func TestE2EAuthorizationFlow(t *testing.T) {
 		t.Log("note: Schwab returned the same refresh token (or omitted it)")
 	} else {
 		t.Log("note: Schwab rotated the refresh token; stored credentials must be updated after every refresh")
+	}
+
+	// Step four: the data API. Everything above proves auth works; this proves
+	// the transaction fetch and the row model survive real data.
+	walkDataAPI(ctx, t, refreshed.AccessToken)
+}
+
+// walkDataAPI exercises accountNumbers and transactions against the live API.
+//
+// It reports shapes and counts only, never account numbers, hashes, symbols or
+// amounts, so the output stays safe to share while debugging.
+func walkDataAPI(ctx context.Context, t *testing.T, accessToken string) {
+	t.Helper()
+
+	client := NewClient(staticTokenSource{token: accessToken})
+
+	t.Log("")
+	t.Log("=== accounts ===")
+	accounts, err := client.AccountNumbers(ctx)
+	if err != nil {
+		t.Fatalf("AccountNumbers: %v", err)
+	}
+	t.Logf("  %d account(s) returned", len(accounts))
+	for i, a := range accounts {
+		t.Logf("  [%d] account number %d chars, hash %d chars",
+			i, len(a.AccountNumber), len(a.HashValue))
+		if a.HashValue == "" {
+			t.Error("  an account came back with no hash; transaction fetches address accounts by hash")
+		}
+	}
+
+	hash, err := client.AccountHash(ctx, "")
+	if err != nil {
+		// Expected and correct when the login has several accounts.
+		t.Logf("  AccountHash(\"\") declined to choose: %v", err)
+		if len(accounts) == 0 {
+			t.Fatal("no accounts to work with")
+		}
+		hash = accounts[0].HashValue
+		t.Log("  using the first account for the rest of this walk")
+	}
+
+	// Try widening windows so a failure separates a wrong date format from a
+	// range cap. transactionDateFormat is the unverified part of client.go, and
+	// this is what verifies it.
+	t.Log("")
+	t.Log("=== transactions: date format and range ===")
+	now := time.Now()
+	windows := []struct {
+		label string
+		span  time.Duration
+	}{
+		{"7 days", 7 * 24 * time.Hour},
+		{"90 days", 90 * 24 * time.Hour},
+		{"1 year (the --since default)", 365 * 24 * time.Hour},
+	}
+
+	var widest []Transaction
+	var widestLabel string
+	anySucceeded := false
+
+	for _, w := range windows {
+		txs, err := client.Transactions(ctx, hash, now.Add(-w.span), now, TypeTrade)
+		if err != nil {
+			t.Logf("  %-30s FAILED: %v", w.label, err)
+			continue
+		}
+		anySucceeded = true
+		widest, widestLabel = txs, w.label
+		t.Logf("  %-30s ok, %d transactions", w.label, len(txs))
+	}
+
+	if !anySucceeded {
+		t.Fatalf("every window failed, so transactionDateFormat (%s) is probably wrong; "+
+			"the request shape is otherwise identical to the calls that already succeeded",
+			transactionDateFormat)
+	}
+	t.Logf("  transactionDateFormat %q is accepted by Schwab", transactionDateFormat)
+
+	if len(widest) == 0 {
+		t.Log("")
+		t.Log("  No TRADE activity in range, so the row model is untested against real")
+		t.Log("  data. Re-run with an account that has trades before trusting it.")
+		return
+	}
+
+	// The row model against real data: this is where the one-row-per-transaction
+	// assumption either holds or is shown to need the deferred multi-leg rule.
+	t.Log("")
+	t.Logf("=== row model against %d real transactions (%s) ===", len(widest), widestLabel)
+
+	assetTypes := map[string]int{}
+	var multiLeg, noLeg, netMismatch int
+	var earliest, latest time.Time
+
+	for _, tx := range widest {
+		leg, err := tx.InstrumentLeg()
+		switch {
+		case errors.Is(err, ErrMultipleInstrumentLegs):
+			multiLeg++
+			t.Logf("  multi-leg: activityId %d, type %s, %d legs",
+				tx.ActivityID, tx.Type, len(tx.TransferItems))
+		case errors.Is(err, ErrNoInstrumentLeg):
+			noLeg++
+			t.Logf("  fee-only: activityId %d, type %s", tx.ActivityID, tx.Type)
+		case err != nil:
+			t.Errorf("  unexpected InstrumentLeg error on activityId %d: %v", tx.ActivityID, err)
+		default:
+			assetTypes[leg.Instrument.AssetType]++
+			if !tx.NetAmountMatches() {
+				netMismatch++
+				t.Errorf("  netAmount mismatch on activityId %d: leg cost %.2f, fees %.2f, netAmount %.2f",
+					tx.ActivityID, leg.Cost, tx.Fees(), tx.NetAmount)
+			}
+		}
+
+		if td := tx.TradeDate.Time; !td.IsZero() {
+			if earliest.IsZero() || td.Before(earliest) {
+				earliest = td
+			}
+			if td.After(latest) {
+				latest = td
+			}
+		}
+	}
+
+	for assetType, n := range assetTypes {
+		t.Logf("  %-10s %d", assetType, n)
+	}
+	if !earliest.IsZero() {
+		t.Logf("  trade dates span %s to %s",
+			earliest.Format("2006-01-02"), latest.Format("2006-01-02"))
+	}
+
+	t.Logf("  fee-folding arithmetic disagreed with netAmount on %d of %d", netMismatch, len(widest))
+	t.Logf("  transactions with multiple instrument legs: %d", multiLeg)
+	t.Logf("  transactions with no instrument leg: %d", noLeg)
+
+	if multiLeg > 0 {
+		t.Log("")
+		t.Log("  Multi-leg transactions are present in a real account, so the deferred")
+		t.Log("  rule for them is required before dedup.go, not optional.")
+	}
+	if noLeg > 0 {
+		t.Log("")
+		t.Log("  Some TRADE entries carry no instrument leg, which contradicts the")
+		t.Log("  assumption behind types=TRADE. Worth inspecting before step 4.")
 	}
 }
 
