@@ -45,13 +45,31 @@ type Client struct {
 	baseURL string
 }
 
+// ClientOption adjusts a Client at construction.
+type ClientOption func(*Client)
+
+// WithBaseURL overrides the API base URL. It must end in a slash. Intended for
+// tests and stubs; production callers should leave the default.
+func WithBaseURL(baseURL string) ClientOption {
+	return func(c *Client) { c.baseURL = baseURL }
+}
+
+// WithHTTPClient supplies the HTTP client used for API calls.
+func WithHTTPClient(h *http.Client) ClientOption {
+	return func(c *Client) { c.http = h }
+}
+
 // NewClient returns a Client that authenticates with tokens from src.
-func NewClient(src TokenSource) *Client {
-	return &Client{
+func NewClient(src TokenSource, opts ...ClientOption) *Client {
+	c := &Client{
 		tokens:  src,
 		http:    &http.Client{Timeout: 60 * time.Second},
 		baseURL: APIBaseURL,
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // AccountNumber pairs a human-readable account number with the opaque hash the

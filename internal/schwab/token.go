@@ -63,14 +63,32 @@ type TokenClient struct {
 	now      func() time.Time
 }
 
+// TokenOption adjusts a TokenClient at construction.
+type TokenOption func(*TokenClient)
+
+// WithTokenEndpoint overrides the token endpoint. Intended for tests and for
+// pointing at a stub; production callers should leave the default.
+func WithTokenEndpoint(endpoint string) TokenOption {
+	return func(c *TokenClient) { c.endpoint = endpoint }
+}
+
+// WithTokenHTTPClient supplies the HTTP client used for token calls.
+func WithTokenHTTPClient(h *http.Client) TokenOption {
+	return func(c *TokenClient) { c.http = h }
+}
+
 // NewTokenClient returns a TokenClient for the given user credentials.
-func NewTokenClient(cfg Config) *TokenClient {
-	return &TokenClient{
+func NewTokenClient(cfg Config, opts ...TokenOption) *TokenClient {
+	c := &TokenClient{
 		cfg:      cfg,
 		http:     &http.Client{Timeout: 30 * time.Second},
 		endpoint: TokenEndpoint,
 		now:      time.Now,
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // Exchange trades an authorization code for a token pair.
