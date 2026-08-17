@@ -82,6 +82,17 @@ Accounts are addressed by `accountHash`, not by account number, so any transacti
 
 Dev `redirect_uri` (reusing the SaaS app's existing Schwab registration for local testing only): `https://127.0.0.1:5001/api/schwab/callback`. Note `synctrades/backend/documentation/DEV_SETUP.md` states `/api/auth/callback`, which is stale and does not match the controller route.
 
+### Observed on the wire (verified against a live account, 2026-08-17)
+
+Confirmed by a real end-to-end run, not from documentation:
+
+- **`invalid_client` means nothing specific.** Both the authorize and token endpoints answer *every* credential problem with HTTP 401 and `{"error":"invalid_client","error_description":"Unauthorized"}`. It does not distinguish a wrong App Key from a wrong Secret from a mismatched `redirect_uri`. A single mistyped character in the App Key presents identically. **Before debugging anything else, assert the App Key is exactly 32 characters and the Secret exactly 16**; a hand-typed key that silently lost one character cost hours here. `TestDiagnoseSchwab` in `internal/schwab` exists to cross-probe both endpoints and name the culprit; use it before ever opening a browser.
+- **Authorization code:** ~76 characters, ends with `@`, which arrives percent-encoded as `%40`. Parse the pasted URL with `net/url` so decoding is automatic. Hand-splitting the query string yields an opaque 400 at exchange.
+- **The callback carries an undocumented `session` parameter** (a UUID) alongside `code` and `state`. Harmless, but unknown parameters must be ignored rather than treated as an error.
+- **Token shapes:** `access_token` ~76 chars, `refresh_token` ~140 chars, `expires_in` 1800 (30 minutes).
+- **Refresh did not rotate the refresh token** in the one observed run: the value came back unchanged, or was omitted and our fallback substituted it. `Refresh` keeps the previously held token when the response omits one. The SaaS app's `TokenService.StoreTokensAsync` writes the response value through unconditionally, so if Schwab ever omits it there, that code stores an empty refresh token and forces a needless re-auth. Worth checking on that side.
+- Schwab's authorize endpoint accepted `state` values of 13, 32, 36 and 43 characters, including base64url with underscores. State shape is not a constraint.
+
 ## Build order
 
 1. `internal/schwab/oauth.go` + `token.go` — authorize URL, paste-back code exchange, refresh, local encrypted token storage. Build this first: it's the riskiest and most novel piece, since there's no server to receive the redirect.
@@ -111,7 +122,10 @@ Per `PRODUCT_PIVOT_BRIEF.md`:
 
 ## Verification before declaring work done
 
-- Any change to `internal/schwab/` (OAuth, token refresh, transaction fetch) → walk the full flow end-to-end against a real dev Schwab account before claiming it works. Silent breakage here is the most expensive kind of bug this project can have.
+- Any change to `internal/schwab/` (OAuth, token refresh, transaction fetch) → walk the full flow end-to-end against a real dev Schwab account before claiming it works. Silent breakage here is the most expensive kind of bug this project can have. Two guarded tests exist for this and skip unless enabled, so they compile and vet on every ordinary `go test ./...`:
+  - `TestDiagnoseSchwab` (`SYNCTRADES_DIAGNOSE=1`) cross-probes the authorize and token endpoints to name which credential is wrong. No browser. Run this first; it turns Schwab's uniform `invalid_client` into an actionable answer.
+  - `TestE2EAuthorizationFlow` (`SYNCTRADES_E2E=1`) walks authorize, paste-back, exchange and refresh. It needs a URL pasted mid-run, and `go test` points the test binary's stdin at the null device, so either compile it (`go test -c`) and run the binary directly, or supply `SCHWAB_CALLBACK_URL` plus `SCHWAB_OAUTH_STATE` and no paste is needed.
+  - The local `e2e-auth.ps1` helper (gitignored) drives the whole sequence: it prompts for credentials rather than reading the clipboard, validates their length, runs the diagnostic, and only opens a browser once Schwab has accepted them.
 - Any change to `internal/sheets/dedup.go` → verify against a real sheet with pre-existing rows. A dedup bug either creates duplicate rows or silently drops real trades — both are unacceptable in a financial tool.
 - Everything else → `go build ./...` and `go vet ./...` at minimum.
 
