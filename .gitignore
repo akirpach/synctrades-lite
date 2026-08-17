@@ -1,6 +1,13 @@
 # Internal planning docs - business strategy, not for a source-available repo
 PRODUCT_PIVOT_BRIEF.md
 
+# The credential store, when kept project-local rather than in the OS config
+# directory. Committing credentials.enc alongside its key file would be
+# equivalent to committing the tokens in plaintext.
+.synctrades/
+credentials.enc
+key
+
 # Credentials - never commit. This tool handles Schwab tokens and GCP service
 # account keys; an accidental commit here is a real incident, not a nuisance.
 service-account*.json
