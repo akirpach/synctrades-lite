@@ -54,15 +54,12 @@ func TestAuthorizeURLEncodesRedirectURI(t *testing.T) {
 	}
 }
 
-func TestGenerateStateIsRandomAndURLSafe(t *testing.T) {
+func TestGenerateStateIsRandomAndSchwabSafe(t *testing.T) {
 	seen := make(map[string]bool, 100)
 	for i := 0; i < 100; i++ {
 		s, err := GenerateState()
 		if err != nil {
 			t.Fatalf("GenerateState: %v", err)
-		}
-		if s == "" {
-			t.Fatal("GenerateState returned an empty string")
 		}
 		if seen[s] {
 			t.Fatalf("GenerateState repeated a value: %q", s)
@@ -71,6 +68,12 @@ func TestGenerateStateIsRandomAndURLSafe(t *testing.T) {
 
 		if url.QueryEscape(s) != s {
 			t.Errorf("state is not URL-safe: %q escapes to %q", s, url.QueryEscape(s))
+		}
+
+		// Kept alphanumeric and short by choice, not by a known Schwab
+		// requirement. Enough entropy to be unguessable is the real constraint.
+		if len(s) != 32 {
+			t.Errorf("state is %d chars, want 32", len(s))
 		}
 	}
 }
@@ -98,6 +101,34 @@ func TestParseCallbackURLRoundTrip(t *testing.T) {
 	}
 	if code != "C0.abc123@" {
 		t.Errorf("code = %q, want %q", code, "C0.abc123@")
+	}
+}
+
+// TestParseCallbackURLHandlesRealSchwabShape uses the actual parameter layout
+// observed from a live Schwab callback: code first, then an undocumented
+// session parameter, then state. The code is a placeholder of the same shape;
+// the real one was single-use and is long expired.
+func TestParseCallbackURLHandlesRealSchwabShape(t *testing.T) {
+	pasted := "https://127.0.0.1:5001/api/schwab/callback" +
+		"?code=C0.b2F1dGgyLmJkYy5zY2h3YWIuY29t.PLACEHOLDER_CODE_VALUE_HERE%40" +
+		"&session=a65df551-47b8-4dcf-90e1-0a0fcdbcc62d" +
+		"&state=pastebacktest"
+
+	code, err := ParseCallbackURL(pasted, "pastebacktest")
+	if err != nil {
+		t.Fatalf("ParseCallbackURL: %v", err)
+	}
+
+	// The trailing %40 must arrive decoded, and the unexpected session
+	// parameter must not interfere.
+	if !strings.HasSuffix(code, "@") {
+		t.Errorf("code does not end in a decoded @: %q", code)
+	}
+	if strings.Contains(code, "%40") {
+		t.Errorf("code is still percent-encoded: %q", code)
+	}
+	if !strings.HasPrefix(code, "C0.") {
+		t.Errorf("code = %q, want the C0. prefix preserved", code)
 	}
 }
 
@@ -187,6 +218,32 @@ func TestParseCallbackURLRejects(t *testing.T) {
 				t.Errorf("error = %v, want %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestParseCallbackURLDiagnosesPastedAuthorizeURL(t *testing.T) {
+	// The authorize URL carries the matching state and no code, so it reaches
+	// the code check and must not read as a parser bug.
+	cfg := testConfig()
+	_, err := ParseCallbackURL(cfg.AuthorizeURL("s1"), "s1")
+
+	if !errors.Is(err, ErrNoCode) {
+		t.Fatalf("error = %v, want ErrNoCode", err)
+	}
+	if !strings.Contains(err.Error(), authorizeHost) {
+		t.Errorf("error does not name the likely cause: %v", err)
+	}
+}
+
+func TestParseCallbackURLListsParamsWhenCodeMissing(t *testing.T) {
+	_, err := ParseCallbackURL("https://127.0.0.1:5001/cb?state=s1&session=abc", "s1")
+	if !errors.Is(err, ErrNoCode) {
+		t.Fatalf("error = %v, want ErrNoCode", err)
+	}
+	for _, want := range []string{"session", "state"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not list %q: %v", want, err)
+		}
 	}
 }
 

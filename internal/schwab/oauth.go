@@ -5,12 +5,16 @@ package schwab
 
 import (
 	"crypto/rand"
-	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 )
+
+// authorizeHost is the host users are most likely to paste back by mistake.
+const authorizeHost = "api.schwabapi.com"
 
 // Schwab endpoints. These are fixed for every user; only the app credentials
 // vary. Ported from the SaaS backend's SchwabApiClient.
@@ -74,12 +78,18 @@ func (c Config) Validate() error {
 
 // GenerateState returns a random value used to tie a pasted callback URL back
 // to the authorization attempt that produced it.
+//
+// Hex rather than base64url: it keeps the value alphanumeric and short, the
+// same shape as the SaaS backend's GUID. No Schwab constraint is known to
+// require this - a 43-character base64url state was tested and behaved no
+// differently - it is simply the conservative choice. 16 bytes is 128 bits of
+// entropy, ample for binding a local paste back to a local session.
 func GenerateState() (string, error) {
-	b := make([]byte, 32)
+	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generating oauth state: %w", err)
 	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
+	return hex.EncodeToString(b), nil
 }
 
 // AuthorizeURL builds the URL the user opens in their browser to grant access.
@@ -141,7 +151,30 @@ func ParseCallbackURL(pasted, expectedState string) (string, error) {
 
 	code := q.Get("code")
 	if code == "" {
-		return "", ErrNoCode
+		return "", fmt.Errorf("%w: %s", ErrNoCode, noCodeHint(u, q))
 	}
 	return code, nil
+}
+
+// noCodeHint explains why a URL that otherwise looks right carries no code.
+//
+// Pasting back the authorize URL is the easy mistake to make: it carries the
+// matching state and no code, so without this the failure looks like a bug in
+// the parser rather than a step that was skipped.
+func noCodeHint(u *url.URL, q url.Values) string {
+	if strings.EqualFold(u.Host, authorizeHost) {
+		return "this URL is still on Schwab's host (" + authorizeHost + "), not your callback host, " +
+			"so it is the authorize URL or a Schwab page from before the redirect. " +
+			"Finish the login, let the callback page fail to load, and copy that address bar instead"
+	}
+
+	keys := make([]string, 0, len(q))
+	for k := range q {
+		keys = append(keys, k)
+	}
+	if len(keys) == 0 {
+		return "the URL has no query parameters at all; copy the whole address bar, including everything from the ? onward"
+	}
+	slices.Sort(keys)
+	return "the URL carries only these parameters: " + strings.Join(keys, ", ")
 }
