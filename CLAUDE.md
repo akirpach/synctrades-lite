@@ -34,6 +34,7 @@ synctrades-lite/
     errors.go                   — status-code -> typed errors
   internal/sheets/
     client.go                   — Sheets API wrapper (service account auth)
+    rows.go                     — column set, transaction -> row mapping, row validation
     dedup.go                    — reads existing activityId column, diffs against fetched transactions
   internal/store/
     credentials.go              — local encrypted storage for Schwab tokens + config (service account key path, Sheet ID)
@@ -101,6 +102,33 @@ Confirmed by a real end-to-end run, not from documentation:
 - **The fee-folding rule held across 506 real transactions**, spanning `OPTION` (392), `EQUITY` (107) and `COLLECTIVE_INVESTMENT` (7). Instrument-leg cost plus fee legs equalled `netAmount` in every case, so `Fees()` and `InstrumentLeg()` are correct for these asset types. Note `COLLECTIVE_INVESTMENT` is an asset type the sample JSON does not contain.
 - **No multi-instrument-leg transactions appeared** in a year of an actively options-traded account, so one-row-per-transaction holds in practice. This is evidence, not proof: assignments and exercises simply did not occur in that window, and they remain the shape that would break it. Keep `ErrMultipleInstrumentLegs` as a hard stop rather than relaxing it. Likewise no TRADE entry lacked an instrument leg.
 
+## Sheet output decisions
+
+Decided while building `internal/sheets/`. Same standing as the decisions above: don't re-litigate without a reason.
+
+- **Values are written with `ValueInputOption: RAW`, never `USER_ENTERED`.**
+  `USER_ENTERED` parses every value as though a person typed it, which turns the `activityId` into a numeric cell.
+  A key that comes back in a different representation than it went in is a broken dedup key, and a broken dedup key means duplicate rows or silently dropped trades.
+  RAW keeps the key text and round-trips it byte for byte.
+  It also means a description beginning with `=` is stored as text rather than evaluated as a formula.
+  The cost is real and accepted: dates land as ISO 8601 *text*, not date-typed cells, so a Phase 2 template that wants real dates has to convert the column.
+  `normalizeActivityID` still accepts numeric cells on read, so a sheet produced by an earlier build, an import, or a hand edit continues to dedup correctly.
+- **The header row is a guard, not decoration.**
+  `EnsureHeader` writes `Headers` into an empty sheet and returns `ErrHeaderMismatch` for anything else.
+  Appending our column order beneath somebody else's header would file prices into date columns with nothing downstream noticing.
+  New columns for later transaction types go on the right, so an existing sheet keeps working.
+- **`BuildRows` is all-or-nothing.**
+  One unmappable transaction aborts the whole batch before a single write.
+  A half-written batch would append some trades, fail, and leave the user to work out which ones landed; failing first keeps the sheet in a state the next run can simply retry.
+- **A transaction that does not reconcile against `netAmount` is a hard stop** (`ErrNetAmountMismatch`), alongside `ErrMultipleInstrumentLegs`.
+  Both mean the fee-folding rule met a shape it does not understand, and a quietly wrong number in a tax record is worse than a failed sync.
+  If this ever fires in the field, the fix is a rule for that shape, not a `--skip-invalid` flag.
+- **`EnsureSheet` creates a missing tab but never a missing spreadsheet.**
+  The user pointed at that file deliberately; they did not necessarily create the tab.
+- **403 and 404 are mapped to `ErrNotShared` and `ErrSpreadsheetNotFound`.**
+  These are the two onboarding failures that will generate support mail: forgetting to share the sheet with the service account's `client_email`, and pasting the whole sheet URL where the ID belongs.
+  Both error messages name the remedy.
+
 ## Build order
 
 1. `internal/schwab/oauth.go` + `token.go` — authorize URL, paste-back code exchange, refresh, local encrypted token storage. Build this first: it's the riskiest and most novel piece, since there's no server to receive the redirect.
@@ -134,7 +162,16 @@ Per `PRODUCT_PIVOT_BRIEF.md`:
   - `TestDiagnoseSchwab` (`SYNCTRADES_DIAGNOSE=1`) cross-probes the authorize and token endpoints to name which credential is wrong. No browser. Run this first; it turns Schwab's uniform `invalid_client` into an actionable answer.
   - `TestE2EAuthorizationFlow` (`SYNCTRADES_E2E=1`) walks authorize, paste-back, exchange and refresh. It needs a URL pasted mid-run, and `go test` points the test binary's stdin at the null device, so either compile it (`go test -c`) and run the binary directly, or supply `SCHWAB_CALLBACK_URL` plus `SCHWAB_OAUTH_STATE` and no paste is needed.
   - The local `e2e-auth.ps1` helper (gitignored) drives the whole sequence: it prompts for credentials rather than reading the clipboard, validates their length, runs the diagnostic, and only opens a browser once Schwab has accepted them.
-- Any change to `internal/sheets/dedup.go` → verify against a real sheet with pre-existing rows. A dedup bug either creates duplicate rows or silently drops real trades — both are unacceptable in a financial tool.
+- Any change to `internal/sheets/dedup.go` → verify against a real sheet with pre-existing rows. A dedup bug either creates duplicate rows or silently drops real trades — both are unacceptable in a financial tool. `TestE2ESheetSync` in `internal/sheets` does this walk and, like the Schwab tests, skips unless enabled so it still compiles and vets on every ordinary `go test ./...`:
+
+  ```
+  SYNCTRADES_SHEETS_E2E=1
+  SHEETS_KEY_PATH=/path/to/service-account.json
+  SHEETS_SPREADSHEET_ID=<the part of the sheet URL between /d/ and /edit>
+  SHEETS_TAB=<optional; defaults to the test-only "Synctrades E2E" tab>
+  ```
+
+  It creates the tab, writes the header, appends a row with a unique `activityId`, reads the key back out of Google's storage, and asserts a second diff appends nothing. Reading the key back is the point: the failure it exists to catch is a key that survives the API call but not the storage round trip. It leaves its rows behind, which is why it defaults to its own tab rather than the one a user syncs into.
 - Everything else → `go build ./...` and `go vet ./...` at minimum.
 
 ## Communication preferences
