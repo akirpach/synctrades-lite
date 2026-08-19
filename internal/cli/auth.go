@@ -8,5 +8,6 @@ func newAuthCmd() *cobra.Command {
 		Short: "Authorize against Schwab or Google Sheets",
 	}
 	cmd.AddCommand(newAuthSchwabCmd())
+	cmd.AddCommand(newAuthSheetsCmd())
 	return cmd
 }
