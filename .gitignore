@@ -20,8 +20,8 @@ client_secret*.json
 .env.*
 
 # Compiled binaries
-synctrades
-synctrades.exe
+/synctrades
+/synctrades.exe
 /dist/
 
 # Local dev helper for the Schwab auth walk
