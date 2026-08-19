@@ -17,6 +17,10 @@ Schwab developer app and your own Google service account, then appends new
 trades to a sheet you control. It never touches anyone else's credentials or
 data.`,
 		SilenceUsage: true,
+		Run: func(cmd *cobra.Command, args []string) {
+			printBanner()
+			_ = cmd.Help()
+		},
 	}
 	cmd.AddCommand(newAuthCmd())
 	cmd.AddCommand(newSyncCmd())
