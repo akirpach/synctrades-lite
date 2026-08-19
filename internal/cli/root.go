@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newRootCmd() *cobra.Command {
+func newRootCmd(version string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "synctrades",
 		Short: "Sync your Schwab trade history into your own Google Sheet",
@@ -16,6 +16,7 @@ func newRootCmd() *cobra.Command {
 Schwab developer app and your own Google service account, then appends new
 trades to a sheet you control. It never touches anyone else's credentials or
 data.`,
+		Version:      version,
 		SilenceUsage: true,
 		Run: func(cmd *cobra.Command, args []string) {
 			printBanner()
@@ -28,9 +29,11 @@ data.`,
 	return cmd
 }
 
-// Execute runs the root command and exits non-zero on failure.
-func Execute() {
-	if err := newRootCmd().Execute(); err != nil {
+// Execute runs the root command and exits non-zero on failure. version is
+// injected by goreleaser at build time; a plain `go build`/`go run` reports
+// "dev".
+func Execute(version string) {
+	if err := newRootCmd(version).Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}

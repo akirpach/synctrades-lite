@@ -5,6 +5,11 @@ package main
 
 import "github.com/akirpach/synctrades-lite/internal/cli"
 
+// version is set at build time via -ldflags "-X main.version=...", which
+// goreleaser does for every tagged release. A plain `go build` leaves it at
+// "dev".
+var version = "dev"
+
 func main() {
-	cli.Execute()
+	cli.Execute(version)
 }

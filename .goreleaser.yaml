@@ -1,0 +1,53 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: synctrades
+
+before:
+  hooks:
+    - go mod tidy
+    - go vet ./...
+
+builds:
+  - id: synctrades
+    main: ./cmd/synctrades
+    binary: synctrades
+    # zalando/go-keyring shells out to the OS keychain (macOS `security`,
+    # Linux D-Bus, Windows wincred) rather than linking against it, so a
+    # plain CGO_ENABLED=0 build works for every target here - no need for
+    # platform-specific C toolchains.
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: synctrades
+    ids:
+      - synctrades
+    format_overrides:
+      - goos: windows
+        formats: ["zip"]
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^test:"
+      - "^chore:"
+
+release:
+  # owner/name are inferred from the origin remote; draft while goreleaser
+  # uploads artifacts, then published automatically once they're all there.
+  draft: false
+  prerelease: auto
