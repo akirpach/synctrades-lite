@@ -19,6 +19,8 @@ data.`,
 		SilenceUsage: true,
 	}
 	cmd.AddCommand(newAuthCmd())
+	cmd.AddCommand(newSyncCmd())
+	cmd.AddCommand(newStatusCmd())
 	return cmd
 }
 
