@@ -14,7 +14,7 @@ import (
 )
 
 // DefaultSheetName is the tab synced into when the user did not name one.
-const DefaultSheetName = "Trades"
+const DefaultSheetName = "Schwab Trades"
 
 // valueInputRAW stops Sheets from parsing what we send.
 //
