@@ -91,10 +91,21 @@ type Sheets struct {
 	SheetName             string `json:"sheet_name"`
 }
 
+// License is the user's purchased synctrades license token. There is no free
+// tier: sync refuses to run without one. Verification is a local signature
+// check (see internal/license), so there is nothing else to cache here.
+type License struct {
+	Token string `json:"token"`
+}
+
+// HasToken reports whether a license token has ever been activated.
+func (l License) HasToken() bool { return l.Token != "" }
+
 // Credentials is the whole persisted state.
 type Credentials struct {
-	Schwab Schwab `json:"schwab"`
-	Sheets Sheets `json:"sheets"`
+	Schwab  Schwab  `json:"schwab"`
+	Sheets  Sheets  `json:"sheets"`
+	License License `json:"license"`
 }
 
 // Store reads and writes one encrypted credential file.

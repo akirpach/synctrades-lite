@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/akirpach/synctrades-lite/internal/license"
 	"github.com/akirpach/synctrades-lite/internal/store"
 )
 
@@ -47,10 +48,25 @@ func runStatus() error {
 	}
 
 	fmt.Println()
+	printLicenseStatus(creds.License)
+	fmt.Println()
 	printSchwabStatus(creds.Schwab)
 	fmt.Println()
 	printSheetsStatus(creds.Sheets)
 	return nil
+}
+
+func printLicenseStatus(l store.License) {
+	if !l.HasToken() {
+		fmt.Println("License: not activated. Run `synctrades license activate <key>`.")
+		return
+	}
+	claims, err := license.Verify(l.Token)
+	if err != nil {
+		fmt.Printf("License: %v. Run `synctrades license activate <key>` with a current key.\n", err)
+		return
+	}
+	fmt.Printf("License: active (%s).\n", claims.Email)
 }
 
 func printSchwabStatus(sc store.Schwab) {

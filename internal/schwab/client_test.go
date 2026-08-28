@@ -401,4 +401,3 @@ func TestTokenSourceFailurePropagates(t *testing.T) {
 		t.Errorf("error = %v, want ErrReauthRequired", err)
 	}
 }
-

@@ -16,13 +16,15 @@ func newRootCmd(version string) *cobra.Command {
 Schwab developer app and your own Google service account, then appends new
 trades to a sheet you control. It never touches anyone else's credentials or
 data.`,
-		Version:      version,
-		SilenceUsage: true,
+		Version:       version,
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		Run: func(cmd *cobra.Command, args []string) {
 			printBanner()
 			_ = cmd.Help()
 		},
 	}
+	cmd.AddCommand(newLicenseCmd())
 	cmd.AddCommand(newAuthCmd())
 	cmd.AddCommand(newSyncCmd())
 	cmd.AddCommand(newStatusCmd())

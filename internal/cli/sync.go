@@ -47,6 +47,9 @@ func runSync(sinceDays int, account string) error {
 	if err != nil {
 		return fmt.Errorf("opening the local credential store: %w", err)
 	}
+	if err := requireLicense(s); err != nil {
+		return err
+	}
 
 	creds, err := s.Load()
 	if errors.Is(err, store.ErrNotConfigured) {
