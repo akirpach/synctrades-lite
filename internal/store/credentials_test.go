@@ -33,7 +33,7 @@ func testStore(t *testing.T) *Store {
 func sampleCredentials() Credentials {
 	return Credentials{
 		Schwab: Schwab{
-			ClientID:     "2gNbUjgfGCqngi3ZIW2QNZIJKorDAwoy",
+			ClientID:     "fake-client-id-not-a-real-value",
 			ClientSecret: "sixteencharsecrt",
 			RedirectURI:  "https://127.0.0.1:5001/api/schwab/callback",
 			AccessToken:  "access-token-value",
