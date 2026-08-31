@@ -1,5 +1,6 @@
 # Internal planning docs - business strategy, not for a source-available repo
 PRODUCT_PIVOT_BRIEF.md
+SUMMARY.md
 
 # The credential store, when kept project-local rather than in the OS config
 # directory. Committing credentials.enc alongside its key file would be
